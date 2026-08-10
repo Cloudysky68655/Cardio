@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Cardio-Respiratory — Study Tracker</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Caveat:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Caveat:wght@600;700&family=Inter:wght@400;500;600;700&family=Baloo+2:wght@500;600;700;800&family=Quicksand:wght@500;600;700&display=swap');
 :root{
   --bg:#0a0b14; --bg2:#0d0f1c;
   --panel:rgba(255,255,255,.035); --panel-solid:#12141f; --panel-border:rgba(255,255,255,.08);
@@ -52,6 +52,22 @@ html.theme-bloom{
   --shadow-rgb:200,40,110;
   --glass-bg:var(--panel-solid);
 }
+html.theme-stitch{
+  --bg:#fff4e8; --bg2:#fffaf2;
+  --panel:#fffdfb; --panel-solid:#fffdfb; --panel-border:rgba(230,140,170,.28);
+  --ink:#3d2b3a; --soft:#9b7d92; --softer:#d8bdd0;
+  --purple:#ff8fb3; --pink:#ff5fa2; --orange:#ffab3d; --amber:#7fc8c4;
+  --accent-bg:rgba(255,95,162,.16); --accent-line:rgba(255,95,162,.35);
+  --grad-primary:linear-gradient(90deg,#ff5fa2,#ffab3d);
+  --grad-warm:linear-gradient(90deg,#ffab3d,#ff5fa2);
+  --green:#7fc8c4; --green-bg:rgba(127,200,196,.16); --green-line:rgba(127,200,196,.35);
+  --yellow:#ffc857; --yellow-bg:rgba(255,200,87,.16); --yellow-line:rgba(255,200,87,.35);
+  --red:#ff8577; --red-bg:rgba(255,133,119,.16); --red-line:rgba(255,133,119,.35);
+  --deep:rgba(61,43,58,.05);
+  --shadow-rgb:255,170,190;
+  --glass-bg:var(--panel-solid);
+  --stitch-teal:#8fd6d2; --stitch-yellow:#ffcf5c; --stitch-orange:#ff9a56; --stitch-pink:#ff6fa8;
+}
 *{box-sizing:border-box}
 html{margin:0;padding:0;background:var(--bg)}
 body{margin:0;padding:28px 16px 70px;overflow-x:hidden;min-height:100vh;position:relative;
@@ -84,8 +100,9 @@ body{margin:0;padding:28px 16px 70px;overflow-x:hidden;min-height:100vh;position
 }
 html.theme-solar .bg-fluid .blob{opacity:.55}
 html.theme-bloom .bg-fluid .blob{opacity:.6}
+html.theme-stitch .bg-fluid .blob{opacity:.4}
 .decor-flower{display:none;position:absolute;opacity:.55;pointer-events:none}
-.theme-solar .decor-flower,.theme-bloom .decor-flower{display:block}
+.theme-solar .decor-flower,.theme-bloom .decor-flower,.theme-stitch .decor-flower{display:block}
 .decor-flowers-bloom{display:none}
 html.theme-bloom .decor-flowers-bloom{display:block;position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
 .decor-flowers-bloom svg{position:absolute;top:-8%;opacity:0;animation:flowerFall linear infinite}
@@ -124,6 +141,7 @@ html.theme-bloom .decor-flowers-bloom{display:block;position:fixed;inset:0;overf
 .theme-dot.dot-dark{background:linear-gradient(135deg,#0a0b14,#8b5cf6)}
 .theme-dot.dot-solar{background:linear-gradient(135deg,#ffab3d,#ff5fa2)}
 .theme-dot.dot-bloom{background:linear-gradient(135deg,#ff2f80,#ffb199)}
+.theme-dot.dot-stitch{background:linear-gradient(135deg,#ff6fa8,#ffcf5c,#8fd6d2)}
 .theme-dot.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--panel-solid)}
 
 /* ---------- Bloom theme: dramatic mismatched sizes & shapes ---------- */
@@ -165,6 +183,8 @@ html.theme-bloom .decor-flowers-bloom{display:block;position:fixed;inset:0;overf
 .theme-bloom .decor-flower{opacity:.85;transform:scale(1.4)}
 .wrap{max-width:1240px;margin:auto}
 h1,h2,h3{font-family:'Fredoka',sans-serif;font-weight:600}
+html.theme-stitch h1,html.theme-stitch h2,html.theme-stitch h3{font-family:'Baloo 2',cursive}
+html.theme-stitch body,html.theme-stitch button,html.theme-stitch input,html.theme-stitch select,html.theme-stitch textarea,html.theme-stitch{font-family:'Quicksand','Inter',sans-serif}
 header{display:flex;justify-content:space-between;gap:25px;align-items:flex-end;border-bottom:1px solid var(--panel-border);padding-bottom:24px;margin-bottom:22px;flex-wrap:wrap}
 .eyebrow,.mono{font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:.08em}
 .eyebrow{font-size:11px;color:var(--amber);font-weight:700}
@@ -242,6 +262,38 @@ html.theme-bloom .progress i::after{display:none}
   50%{filter:brightness(1.18)}
 }
 
+/* Sweet Stitch: candy rainbow ribbon (palette-only) with a little stitched running-thread dash and a daisy topper */
+html.theme-stitch .progress{
+  height:14px;border-radius:100px;background:#fff;
+  border:2px dashed rgba(230,140,170,.45);backdrop-filter:none;-webkit-backdrop-filter:none;overflow:hidden;
+  box-shadow:inset 0 2px 4px rgba(61,43,58,.06);
+}
+html.theme-stitch .progress i{
+  border-radius:100px;box-shadow:0 2px 8px rgba(255,111,168,.35);overflow:visible;
+  background:linear-gradient(90deg,#ff6fa8,#ff9a56,#ffcf5c,#8fd6d2,#ff6fa8);
+  background-size:220% 100%;
+  animation:stitchRainbowFlow 5s linear infinite;
+}
+html.theme-stitch .progress i::before{
+  content:"";position:absolute;inset:3px 0 3px 0;
+  background-image:repeating-linear-gradient(90deg, rgba(255,255,255,.8) 0 5px, transparent 5px 11px);
+  opacity:.6;border-radius:100px;
+}
+html.theme-stitch .progress i::after{
+  content:"✿";position:absolute;right:-9px;top:50%;transform:translateY(-50%);
+  font-size:15px;line-height:1;color:#fff;
+  filter:drop-shadow(0 0 3px rgba(255,111,168,.9)) drop-shadow(0 1px 1px rgba(61,43,58,.35));
+  animation:stitchDaisySpin 3s linear infinite;
+}
+@keyframes stitchRainbowFlow{0%{background-position:0% 0}100%{background-position:220% 0}}
+@keyframes stitchDaisySpin{0%{transform:translateY(-50%) rotate(0deg)}100%{transform:translateY(-50%) rotate(360deg)}}
+
+/* Sweet Stitch identity: a small rainbow arc tucked in the corner, palette-only colors */
+.stitch-rainbow-travel{display:none;position:fixed;top:16px;left:16px;width:150px;pointer-events:none;z-index:0;
+  opacity:.85;filter:drop-shadow(0 8px 14px rgba(255,111,168,.28));
+}
+html.theme-stitch .stitch-rainbow-travel{display:block}
+
 /* ---------- Click-on-background effects (theme identity) ---------- */
 @keyframes clickFlower{
   0%{transform:translate(0,0) scale(0) rotate(0deg);opacity:0}
@@ -272,11 +324,63 @@ html.theme-bloom .progress i::after{display:none}
   backdrop-filter:blur(22px) saturate(180%);-webkit-backdrop-filter:blur(22px) saturate(180%);
 }
 html.theme-solar .stat,html.theme-solar .panel,html.theme-solar .card,
-html.theme-bloom .stat,html.theme-bloom .panel,html.theme-bloom .card{
+html.theme-bloom .stat,html.theme-bloom .panel,html.theme-bloom .card,
+html.theme-stitch .stat,html.theme-stitch .panel,html.theme-stitch .card{
   background:var(--panel);border-top:1px solid var(--panel-border);
   box-shadow:0 10px 30px rgba(var(--shadow-rgb),.22);
   backdrop-filter:none;-webkit-backdrop-filter:none;
 }
+
+/* ---------- Sweet Stitch: pastel craft / scrapbook treatment ---------- */
+html.theme-stitch .stat,html.theme-stitch .panel,html.theme-stitch .card{
+  border:2px dashed var(--panel-border);border-radius:26px;
+  box-shadow:0 12px 26px rgba(255,150,180,.18);
+}
+html.theme-stitch .dashboard .stat:nth-child(1) .label,
+html.theme-stitch .dashboard .stat:nth-child(1) .num{color:#fff}
+html.theme-stitch .dashboard .stat:nth-child(1){background:var(--stitch-pink);border-style:solid;border-color:var(--stitch-pink)}
+html.theme-stitch .dashboard .stat:nth-child(2){background:var(--stitch-yellow);border-style:solid;border-color:var(--stitch-yellow)}
+html.theme-stitch .dashboard .stat:nth-child(3){background:var(--stitch-orange);border-style:solid;border-color:var(--stitch-orange)}
+html.theme-stitch .dashboard .stat:nth-child(4){background:var(--stitch-teal);border-style:solid;border-color:var(--stitch-teal)}
+html.theme-stitch .dashboard .stat:nth-child(2) .num,html.theme-stitch .dashboard .stat:nth-child(2) .label,
+html.theme-stitch .dashboard .stat:nth-child(3) .num,html.theme-stitch .dashboard .stat:nth-child(3) .label,
+html.theme-stitch .dashboard .stat:nth-child(4) .num,html.theme-stitch .dashboard .stat:nth-child(4) .label{color:#3d2b3a}
+html.theme-stitch .dashboard .stat:nth-child(odd){transform:rotate(-0.6deg)}
+html.theme-stitch .dashboard .stat:nth-child(even){transform:rotate(0.6deg)}
+html.theme-stitch .stat:hover,html.theme-stitch .card:hover,html.theme-stitch .panel:hover{transform:translateY(-3px) rotate(0deg);transition:transform .2s ease}
+html.theme-stitch .card-head{border-bottom:2px dashed var(--panel-border)}
+html.theme-stitch .card-head h2{color:var(--pink)}
+html.theme-stitch .btn-primary,html.theme-stitch .tabs button.active,html.theme-stitch .check.on,
+html.theme-stitch .passes-opt.active,html.theme-stitch .type-chip.active{
+  background:var(--stitch-pink);box-shadow:0 6px 16px rgba(255,111,168,.32);
+}
+html.theme-stitch .btn-primary,html.theme-stitch button.active,html.theme-stitch .type-chip{border-radius:100px}
+html.theme-stitch button{border-radius:100px}
+html.theme-stitch .badge{border-radius:100px;background:var(--yellow-bg);color:#a15b1f;border:1px solid var(--yellow-line)}
+html.theme-stitch h1{position:relative;display:inline-block}
+html.theme-stitch h1::after{content:"";position:absolute;left:2px;right:10%;bottom:4px;height:10px;background:var(--stitch-yellow);border-radius:6px;opacity:.55;z-index:-1}
+
+/* Signature stamp — a stitched fabric-patch badge unique to this theme */
+.stitch-signature{
+  display:none;position:relative;flex:none;width:78px;height:78px;
+  align-items:center;justify-content:center;text-align:center;
+  border-radius:50%;transform:rotate(-8deg);
+  background:radial-gradient(circle at 35% 30%, #fff, #ffe3ef 60%, #ffd0e4 100%);
+  border:2.5px dashed var(--stitch-pink);
+  box-shadow:0 8px 18px rgba(255,111,168,.35), inset 0 0 0 5px #fff;
+  cursor:default;
+}
+html.theme-stitch .stitch-signature{display:flex}
+.stitch-signature span{
+  font-family:'Caveat',cursive;font-weight:700;font-size:15px;line-height:1.15;
+  color:var(--pink);transform:rotate(2deg);
+}
+.stitch-signature::after{
+  content:"✿";position:absolute;top:-8px;right:-6px;font-size:18px;color:var(--stitch-teal);
+  filter:drop-shadow(0 1px 1px rgba(61,43,58,.25));
+  animation:stitchSignatureSway 3.4s ease-in-out infinite;
+}
+@keyframes stitchSignatureSway{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
 
 /* ---------- Solar Pop: bold sticker / pop-art treatment ---------- */
 html.theme-solar .stat,html.theme-solar .panel,html.theme-solar .card{
@@ -460,12 +564,21 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--purple)}
 .hidden{display:none}
 footer{text-align:center;color:var(--softer);font:10px ui-monospace,monospace;text-transform:uppercase;margin-top:28px}
 .theme-solar footer,.theme-bloom footer{font-family:'Caveat',cursive;font-size:20px;text-transform:none;letter-spacing:0;color:var(--purple);font-weight:700}
+.theme-stitch footer{font-family:'Caveat',cursive;font-size:21px;text-transform:none;letter-spacing:.02em;color:var(--pink);font-weight:700}
 @media(max-width:900px){.dashboard{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}.heatmap-split .heatmap-widget{border-left:none!important;border-top:1px solid var(--panel-border);padding-left:0!important;padding-top:14px;margin-top:4px;flex:1 1 100%!important}}
 @media(max-width:560px){.dashboard{grid-template-columns:1fr}th:nth-child(3),td:nth-child(3){display:none}}
 </style>
 </head>
 <body>
 <div class="bg-fluid" aria-hidden="true"><span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span><span class="blob b4"></span></div>
+<div class="stitch-rainbow-travel" aria-hidden="true">
+  <svg viewBox="0 0 220 120" width="150" height="82">
+    <path d="M10,110 A100,100 0 0,1 210,110" stroke="#ff6fa8" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M24,110 A86,86 0 0,1 196,110" stroke="#ff9a56" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M38,110 A72,72 0 0,1 182,110" stroke="#ffcf5c" stroke-width="12" fill="none" stroke-linecap="round"/>
+    <path d="M52,110 A58,58 0 0,1 168,110" stroke="#8fd6d2" stroke-width="12" fill="none" stroke-linecap="round"/>
+  </svg>
+</div>
 <div class="wrap">
 <header>
   <div>
@@ -478,8 +591,10 @@ footer{text-align:center;color:var(--softer);font:10px ui-monospace,monospace;te
       <button type="button" class="theme-dot dot-dark active" data-theme="dark" title="Midnight Pulse theme"></button>
       <button type="button" class="theme-dot dot-solar" data-theme="solar" title="Solar Pop theme"></button>
       <button type="button" class="theme-dot dot-bloom" data-theme="bloom" title="Bloom theme"></button>
+      <button type="button" class="theme-dot dot-stitch" data-theme="stitch" title="Sweet Stitch theme"></button>
       <span class="mono small" id="themeNameLabel" style="margin-left:2px;padding-right:4px">Midnight Pulse</span>
     </div>
+    <div class="stitch-signature"><span>made with<br>love ✿</span></div>
     <button onclick="openSettings()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>Unit duration</button>
     <button onclick="exportData()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7"></path><path d="M7 7h10v10"></path></svg>Export</button>
     <button onclick="resetData()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>Reset</button>
@@ -1463,11 +1578,12 @@ function load() {
   applyTheme(settings.theme);
   render();
 }
-const THEME_NAMES = {dark:"Midnight Pulse", solar:"Solar Pop", bloom:"Bloom"};
+const THEME_NAMES = {dark:"Midnight Pulse", solar:"Solar Pop", bloom:"Bloom", stitch:"Sweet Stitch"};
 function applyTheme(name) {
-  document.documentElement.classList.remove("theme-solar","theme-bloom");
+  document.documentElement.classList.remove("theme-solar","theme-bloom","theme-stitch");
   if(name==="solar") document.documentElement.classList.add("theme-solar");
   if(name==="bloom") document.documentElement.classList.add("theme-bloom");
+  if(name==="stitch") document.documentElement.classList.add("theme-stitch");
   document.querySelectorAll(".theme-dot").forEach(d=>d.classList.toggle("active", d.dataset.theme===name));
   const label=document.getElementById("themeNameLabel");
   if(label) label.textContent=THEME_NAMES[name]||"";
@@ -1570,19 +1686,50 @@ function spawnPulseRipple(x,y){
   document.body.appendChild(dot);
   dot.addEventListener("animationend", ()=>dot.remove());
 }
+function spawnStitchBurst(x,y){
+  const colors=["#ff6fa8","#ffcf5c","#ff9a56","#8fd6d2"];
+  const count=8;
+  for(let i=0;i<count;i++){
+    const el=document.createElement("div");
+    const angle=(Math.PI*2*i)/count + Math.random()*0.5;
+    const dist=26+Math.random()*44;
+    const size=5+Math.random()*4;
+    const rot=(Math.random()*360).toFixed(0);
+    el.style.cssText=`position:fixed;left:${x}px;top:${y}px;width:${size}px;height:${size}px;border-radius:2px;
+      background:${colors[i%colors.length]};pointer-events:none;z-index:60;
+      box-shadow:0 1px 2px rgba(61,43,58,.25);
+      --dx:${(Math.cos(angle)*dist).toFixed(1)}px;--dy:${(Math.sin(angle)*dist-14).toFixed(1)}px;
+      --rot:${rot}deg;transform:rotate(${rot}deg);animation:clickFlower .85s ease-out forwards`;
+    document.body.appendChild(el);
+    el.addEventListener("animationend", ()=>el.remove());
+  }
+  const daisy=document.createElementNS("http://www.w3.org/2000/svg","svg");
+  daisy.setAttribute("viewBox","0 0 24 24");
+  daisy.setAttribute("width","16");
+  daisy.setAttribute("height","16");
+  daisy.innerHTML=`<path fill="#fff" stroke="#ff6fa8" stroke-width="1" d="${FLOWER_PATH}"/>`;
+  daisy.style.cssText=`position:fixed;left:${x}px;top:${y}px;pointer-events:none;z-index:61;
+    --dx:0px;--dy:-30px;--rot:120deg;animation:clickFlower 1s ease-out forwards`;
+  document.body.appendChild(daisy);
+  daisy.addEventListener("animationend", ()=>daisy.remove());
+}
 function spawnThemeBurst(x,y){
   const theme = document.documentElement.classList.contains("theme-bloom") ? "bloom"
-    : document.documentElement.classList.contains("theme-solar") ? "solar" : "dark";
+    : document.documentElement.classList.contains("theme-solar") ? "solar"
+    : document.documentElement.classList.contains("theme-stitch") ? "stitch" : "dark";
   if(theme==="bloom") spawnFlowerBurst(x,y);
   else if(theme==="solar") spawnSparkBurst(x,y);
+  else if(theme==="stitch") spawnStitchBurst(x,y);
   else spawnPulseRipple(x,y);
 }
 document.addEventListener("click", (e)=>{
   if(e.target.closest("button, input, select, textarea, a, .card, .stat, .modal, .type-chip, .theme-dot, table, .logrow, .priority-item")) return;
   const theme = document.documentElement.classList.contains("theme-bloom") ? "bloom"
-    : document.documentElement.classList.contains("theme-solar") ? "solar" : "dark";
+    : document.documentElement.classList.contains("theme-solar") ? "solar"
+    : document.documentElement.classList.contains("theme-stitch") ? "stitch" : "dark";
   if(theme==="bloom") spawnFlowerBurst(e.clientX, e.clientY);
   else if(theme==="solar") spawnSparkBurst(e.clientX, e.clientY);
+  else if(theme==="stitch") spawnStitchBurst(e.clientX, e.clientY);
   else spawnPulseRipple(e.clientX, e.clientY);
 });
 

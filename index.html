@@ -480,6 +480,20 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .daypri-opt[data-level="1"]{border-color:var(--purple);background:color-mix(in srgb, var(--purple) 12%, var(--panel))}
 .daypri-opt[data-level="2"]{background:var(--grad-primary);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.35)}
 .daypri-opt:hover{border-color:var(--purple)}
+.manual-week-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:10px}
+.manual-day{border:1.5px dashed var(--panel-border);border-radius:12px;padding:10px;min-height:100px;transition:border-color .15s,background .15s}
+.manual-day.drag-over{border-color:var(--purple);border-style:solid;background:color-mix(in srgb, var(--purple) 8%, transparent)}
+.manual-chip-list{display:flex;flex-direction:column;gap:6px;margin-bottom:6px;min-height:20px}
+.manual-chip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:grab;text-align:left;font-size:11.5px}
+.manual-chip:active{cursor:grabbing}
+.manual-chip.dragging{opacity:.35}
+.manual-chip-remove{background:none;border:none;color:inherit;opacity:.55;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;flex-shrink:0}
+.manual-chip-remove:hover{opacity:1;color:var(--red)}
+.manual-add-btn{font-size:11px;padding:4px 8px}
+.manual-picker{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.manual-picker select{flex:1;min-width:120px;max-width:100%}
+.manual-picker.hidden{display:none}
+.mode-switch{display:flex;gap:8px;flex-wrap:wrap}
 .small{font-size:11px;color:var(--soft)}
 .priority{padding:18px}
 .priority h2{margin:0 0 12px}
@@ -1510,6 +1524,126 @@ function reopenScheduleSetup() {
   save();
   renderSchedule();
 }
+/* ---------- Manual schedule mode: fully user-controlled, drag & drop ---------- */
+function setScheduleMode(mode) {
+  settings.schedule = settings.schedule || {};
+  settings.schedule.mode = mode;
+  save();
+  renderSchedule();
+}
+function manualTopicOptionsHtml(allT) {
+  const bySubject={};
+  allT.forEach(t=>{ (bySubject[t.subject]=bySubject[t.subject]||[]).push(t); });
+  return `<option value="">Pick a topic…</option>` + Object.entries(bySubject).map(([subj,arr])=>
+    `<optgroup label="${subj}">${arr.map(t=>`<option value="${t.id}">${t.sub?t.sub+" – ":""}${t.name}</option>`).join("")}</optgroup>`
+  ).join("");
+}
+function manualScheduleHtml(start, D) {
+  settings.schedule.manualPlan = settings.schedule.manualPlan || {};
+  const plan = settings.schedule.manualPlan;
+  const allT = allTopics();
+  const topicById = {}; allT.forEach(t=>{ topicById[t.id]=t; });
+  const optionsHtml = manualTopicOptionsHtml(allT);
+  let html = `<div class="card priority">
+    <h2>Manual schedule</h2>
+    <p class="small">Completely up to you — pick which topics land on which day, then drag a chip onto another day anytime to move it.</p>
+  </div>`;
+  for(let wStart=0; wStart<D; wStart+=7){
+    const wEnd=Math.min(D, wStart+7);
+    const weekStartDate=new Date(start); weekStartDate.setDate(weekStartDate.getDate()+wStart);
+    const weekEndDate=new Date(start); weekEndDate.setDate(weekEndDate.getDate()+wEnd-1);
+    let dayCards="";
+    for(let d=wStart; d<wEnd; d++){
+      const date=new Date(start); date.setDate(date.getDate()+d);
+      const ids = plan[d]||[];
+      const chips = ids.map(id=>{
+        const t=topicById[id];
+        if(!t) return "";
+        return `<div class="sched-chip manual-chip" draggable="true" data-day="${d}" data-topic="${id}" ondragstart="manualDragStart(event)" ondragend="manualDragEnd(event)">
+          <span>${t.sub?t.sub+" – ":""}${t.name}</span>
+          <button type="button" class="manual-chip-remove" onclick="manualRemoveTopic(${d},'${id}')" title="Remove">×</button>
+        </div>`;
+      }).join("");
+      dayCards += `<div class="manual-day" data-day="${d}" ondragover="manualDragOver(event)" ondragleave="manualDragLeave(event)" ondrop="manualDrop(event)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
+          <span class="mono small">${date.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>
+          <button type="button" class="manual-add-btn" onclick="manualOpenPicker(${d})">+ Add</button>
+        </div>
+        <div class="manual-chip-list" id="manualChips-${d}">${chips || '<span class="small" style="opacity:.5">Drop a topic here</span>'}</div>
+        <div class="manual-picker hidden" id="manualPicker-${d}">
+          <select id="manualPickerSelect-${d}">${optionsHtml}</select>
+          <button type="button" class="btn-primary" onclick="manualAddTopic(${d})">Add</button>
+          <button type="button" onclick="manualClosePicker(${d})">Cancel</button>
+        </div>
+      </div>`;
+    }
+    html += `<div class="card priority">
+      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span></h2>
+      <div class="manual-week-grid">${dayCards}</div>
+    </div>`;
+  }
+  return html;
+}
+function manualOpenPicker(d) {
+  document.querySelectorAll(".manual-picker").forEach(p=>p.classList.add("hidden"));
+  const el=document.getElementById(`manualPicker-${d}`);
+  if(el) el.classList.remove("hidden");
+}
+function manualClosePicker(d) {
+  const el=document.getElementById(`manualPicker-${d}`);
+  if(el) el.classList.add("hidden");
+}
+function manualAddTopic(d) {
+  const sel=document.getElementById(`manualPickerSelect-${d}`);
+  if(!sel || !sel.value) return;
+  settings.schedule.manualPlan = settings.schedule.manualPlan || {};
+  const arr = settings.schedule.manualPlan[d] = settings.schedule.manualPlan[d] || [];
+  if(!arr.includes(sel.value)) arr.push(sel.value);
+  save();
+  renderSchedule();
+}
+function manualRemoveTopic(d, id) {
+  const arr = settings.schedule.manualPlan && settings.schedule.manualPlan[d];
+  if(!arr) return;
+  settings.schedule.manualPlan[d] = arr.filter(x=>x!==id);
+  save();
+  renderSchedule();
+}
+let manualDragging = null;
+function manualDragStart(evt) {
+  const day=evt.currentTarget.dataset.day, id=evt.currentTarget.dataset.topic;
+  manualDragging = {day:Number(day), id};
+  evt.currentTarget.classList.add("dragging");
+  evt.dataTransfer.effectAllowed = "move";
+  try { evt.dataTransfer.setData("text/plain", id); } catch(e) {}
+}
+function manualDragEnd(evt) {
+  evt.currentTarget.classList.remove("dragging");
+  document.querySelectorAll(".manual-day.drag-over").forEach(el=>el.classList.remove("drag-over"));
+}
+function manualDragOver(evt) {
+  evt.preventDefault();
+  evt.currentTarget.classList.add("drag-over");
+}
+function manualDragLeave(evt) {
+  evt.currentTarget.classList.remove("drag-over");
+}
+function manualDrop(evt) {
+  evt.preventDefault();
+  evt.currentTarget.classList.remove("drag-over");
+  if(!manualDragging) return;
+  const targetDay=Number(evt.currentTarget.dataset.day);
+  const {day:sourceDay, id}=manualDragging;
+  manualDragging=null;
+  if(targetDay===sourceDay) return;
+  settings.schedule.manualPlan = settings.schedule.manualPlan || {};
+  const src = settings.schedule.manualPlan[sourceDay] || [];
+  settings.schedule.manualPlan[sourceDay] = src.filter(x=>x!==id);
+  const tgt = settings.schedule.manualPlan[targetDay] = settings.schedule.manualPlan[targetDay] || [];
+  if(!tgt.includes(id)) tgt.push(id);
+  save();
+  renderSchedule();
+}
 function scheduleSessionChip(it, isPast) {
   const t=getTopic(it.id);
   const done=(t.passes||0)>=it.pass;
@@ -1555,10 +1689,20 @@ function renderSchedule() {
     </div>`;
     return;
   }
+  settings.schedule = settings.schedule || {};
+  const mode = settings.schedule.mode || "auto";
+  const modeSwitcherHtml = `<div class="card priority mode-switch">
+    <button class="${mode==="auto"?"btn-primary":""}" onclick="setScheduleMode('auto')">Auto · spaced repetition</button>
+    <button class="${mode==="manual"?"btn-primary":""}" onclick="setScheduleMode('manual')">Manual · drag & drop</button>
+  </div>`;
+  if(mode==="manual"){
+    view.innerHTML = modeSwitcherHtml + manualScheduleHtml(start, D);
+    return;
+  }
   const cfg=settings.schedule||{targetPasses:5,maxModulesPerDay:2,maxNewPerModulePerDay:2,maxReviewPerModulePerDay:3,dayPriority:DEFAULT_DAY_PRIORITY,newMin:20,reviewMin:10,generated:false};
-  if(!cfg.generated){ view.innerHTML=scheduleSetupHtml(); initPassesPicker(); initDayPriorityPicker(); return; }
+  if(!cfg.generated){ view.innerHTML=modeSwitcherHtml+scheduleSetupHtml(); initPassesPicker(); initDayPriorityPicker(); return; }
   const plan=buildSchedule(cfg.targetPasses, cfg.maxModulesPerDay, cfg.maxNewPerModulePerDay, cfg.maxReviewPerModulePerDay, cfg.dayPriority);
-  if(!plan){ view.innerHTML=scheduleSetupHtml(); return; }
+  if(!plan){ view.innerHTML=modeSwitcherHtml+scheduleSetupHtml(); return; }
   const today=new Date(); today.setHours(0,0,0,0);
   const todayIdx=Math.round((today-plan.start)/86400000);
   const T=allTopics().length;
@@ -1569,7 +1713,7 @@ function renderSchedule() {
   const activeDayCountAll=Object.keys(plan.schedule).length;
   const avgMinutesPerActiveDayAll=activeDayCountAll?Math.round(totalMinutesAll/activeDayCountAll):0;
   const offDayCountAll=Object.values(cfg.dayPriority||DEFAULT_DAY_PRIORITY).filter(v=>v===0).length;
-  let html=`<div class="card priority" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+  let html=modeSwitcherHtml+`<div class="card priority" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
     <div>
       <h2 style="margin-bottom:4px">${plan.days}-day plan</h2>
       <p class="small" style="margin:0">${T} topics · target ${cfg.targetPasses} passes each · ${cfg.maxModulesPerDay||2} subject${(cfg.maxModulesPerDay||2)===1?"":"s"}/day · max ${cfg.maxNewPerModulePerDay||2} new / ${cfg.maxReviewPerModulePerDay||3} review per subject · ${T*cfg.targetPasses} sessions total${offDayCountAll?` · ${offDayCountAll} day${offDayCountAll===1?"":"s"}/week off`:""}</p>
@@ -1619,7 +1763,6 @@ function renderSchedule() {
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap">
             <span class="mono small" style="${isToday?"color:var(--purple);font-weight:700":""}">${date.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>
             ${isToday?'<span class="badge">Today</span>':""}
-            <span class="small" style="opacity:.65">≈ ${dayMinutes} min</span>
             ${isDayComplete?`<span class="day-check${alreadyAnimated?"":" check-pop"}">${ICON_CHECK}</span>`:""}
           </div>
           ${groupsHtml}
@@ -1629,7 +1772,7 @@ function renderSchedule() {
     }
     if(!dayRows) continue;
     html+=`<div class="card priority">
-      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})} · ≈ ${Math.round(weekMinutes/60*10)/10} hrs</span></h2>
+      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span></h2>
       ${dayRows}
     </div>`;
   }

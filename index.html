@@ -472,6 +472,14 @@ tr:hover td{background:rgba(255,255,255,.02)}
 }
 .passes-opt.active{background:var(--grad-primary);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.35)}
 .passes-opt:hover{border-color:var(--purple)}
+.daypri-picker{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.daypri-opt{padding:8px 4px;border-radius:10px;border:1px solid var(--panel-border);background:var(--panel);cursor:pointer;font-size:11.5px;font-weight:600;min-width:56px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .15s}
+.daypri-opt .dp-day{font-size:12px}
+.daypri-opt .dp-level{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;opacity:.8}
+.daypri-opt[data-level="0"]{opacity:.45;text-decoration:line-through}
+.daypri-opt[data-level="1"]{border-color:var(--purple);background:color-mix(in srgb, var(--purple) 12%, var(--panel))}
+.daypri-opt[data-level="2"]{background:var(--grad-primary);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.35)}
+.daypri-opt:hover{border-color:var(--purple)}
 .small{font-size:11px;color:var(--soft)}
 .priority{padding:18px}
 .priority h2{margin:0 0 12px}
@@ -797,6 +805,13 @@ let pendingTargetPasses = 5;
 let pendingMaxModulesPerDay = 2;
 let pendingMaxNewPerModulePerDay = 2;
 let pendingMaxReviewPerModulePerDay = 3;
+let pendingDayPriority = {0:1,1:1,2:1,3:1,4:1,5:1,6:1};
+let pendingNewMin = 20;
+let pendingReviewMin = 10;
+const DEFAULT_DAY_PRIORITY = {0:1,1:1,2:1,3:1,4:1,5:1,6:1};
+const DAY_PRIORITY_LABELS = {0:"Off", 1:"Normal", 2:"Intense"};
+const DAY_PRIORITY_FACTORS = {0:0, 1:1, 2:1.75};
+const WEEKDAY_SHORT = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 let scheduleAnimatedDays = new Set(); // day indices whose completion reveal has already played
 let pendingFillOrigin = null; // {day, xPct, yPct} — where a completing click landed, for the radial fill
 
@@ -1140,7 +1155,7 @@ function renderWeekWidget(topics) {
 function getOverdueScheduleTopicIds() {
   const overdueIds=new Set();
   if(!settings.schedule || !settings.schedule.generated) return overdueIds;
-  const plan=buildSchedule(settings.schedule.targetPasses, settings.schedule.maxModulesPerDay, settings.schedule.maxNewPerModulePerDay, settings.schedule.maxReviewPerModulePerDay);
+  const plan=buildSchedule(settings.schedule.targetPasses, settings.schedule.maxModulesPerDay, settings.schedule.maxNewPerModulePerDay, settings.schedule.maxReviewPerModulePerDay, settings.schedule.dayPriority);
   if(!plan) return overdueIds;
   const today=new Date(); today.setHours(0,0,0,0);
   const todayIdx=Math.round((today-plan.start)/86400000);
@@ -1153,7 +1168,7 @@ function getOverdueScheduleTopicIds() {
   });
   return overdueIds;
 }
-function buildSchedule(targetPasses, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay) {
+function buildSchedule(targetPasses, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay, dayPriority) {
   const start=getStartDate(), D=getDurationDays();
   if(!start||!D) return null;
   const allT=allTopics();
@@ -1161,9 +1176,30 @@ function buildSchedule(targetPasses, maxModulesPerDay, maxNewPerModulePerDay, ma
   maxModulesPerDay=Math.max(1, Math.min(DATA.length, Math.round(maxModulesPerDay||2)));
   maxNewPerModulePerDay=Math.max(1, Math.round(maxNewPerModulePerDay||2));
   maxReviewPerModulePerDay=Math.max(1, Math.round(maxReviewPerModulePerDay||3));
-  // Subjects are grouped into fixed daily pairings (in DATA order) and
-  // rotate: a day is only "active" for the subjects in its group, so at
-  // most maxModulesPerDay distinct subjects ever appear on the same day.
+  dayPriority = dayPriority || DEFAULT_DAY_PRIORITY;
+  const startWeekday = start.getDay();
+  function weekdayForOffset(d){ return (startWeekday + d) % 7; }
+  function priorityFactor(d){
+    const lv = dayPriority[weekdayForOffset(d)];
+    return DAY_PRIORITY_FACTORS[lv===undefined?1:lv];
+  }
+  // Lazily-extended list of active (non-"Off") calendar-day offsets, shared
+  // across all subjects so their rotations stay interleaved correctly.
+  const activeDayCache=[];
+  let scanPtr=0, allOff=false;
+  function activeDayAt(idx){
+    if(allOff) return null;
+    while(activeDayCache.length<=idx){
+      let guard=0;
+      while(priorityFactor(scanPtr)===0){ scanPtr++; guard++; if(guard>20000){ allOff=true; return null; } }
+      activeDayCache.push(scanPtr);
+      scanPtr++;
+    }
+    return activeDayCache[idx];
+  }
+  // Sanity check: if every weekday is "Off" there's no valid plan.
+  if(Object.keys(dayPriority).length && Object.values(dayPriority).every(v=>DAY_PRIORITY_FACTORS[v]===0)) return null;
+
   const groups=[];
   for(let i=0;i<DATA.length;i+=maxModulesPerDay) groups.push(DATA.slice(i,i+maxModulesPerDay).map(s=>s.key));
   const groupsLen=groups.length;
@@ -1176,17 +1212,17 @@ function buildSchedule(targetPasses, maxModulesPerDay, maxNewPerModulePerDay, ma
     const groupOffset=groupOffsetForKey[s.key];
     const moduleTopics=allT.filter(t=>t.key===s.key);
     if(!moduleTopics.length) return;
-    // Positions are indices into this subject's own sequence of active
-    // days (every groupsLen calendar days) — packing happens in position
-    // space, completely decoupled from the requested duration, so the
-    // plan fills every active day to capacity and finishes as soon as
-    // it's done rather than stretching to match a target length.
-    const posBuffer=Math.ceil(moduleTopics.length/maxNewPerModulePerDay) + moduleTopics.length*targetPasses + 50;
-    const activeDays=[];
-    for(let i=0;i<posBuffer;i++) activeDays.push(groupOffset+i*groupsLen);
+    // This subject's own sequence of active-day positions maps to real
+    // calendar offsets via activeDayAt(groupOffset + pos*groupsLen).
+    const dayForPos = pos => activeDayAt(groupOffset + pos*groupsLen);
+    const capNewAt = pos => { const d=dayForPos(pos); return d==null ? maxNewPerModulePerDay : Math.max(1, Math.round(maxNewPerModulePerDay * priorityFactor(d))); };
+    const capRevAt = pos => { const d=dayForPos(pos); return d==null ? maxReviewPerModulePerDay : Math.max(1, Math.round(maxReviewPerModulePerDay * priorityFactor(d))); };
     const newSessions=[], reviewSessions=[];
+    let pos=0, filledInPos=0, guardPos=0;
     moduleTopics.forEach((t,k)=>{
-      const occIdx=Math.floor(k/maxNewPerModulePerDay);
+      while(filledInPos>=capNewAt(pos) && guardPos<20000){ pos++; filledInPos=0; guardPos++; }
+      const occIdx=pos;
+      filledInPos++;
       newSessions.push({id:t.id, name:t.name, subject:t.subject, sub:t.sub, pass:1, total:targetPasses, pos:occIdx});
       const passPositions=[occIdx];
       if(targetPasses>1){
@@ -1203,42 +1239,80 @@ function buildSchedule(targetPasses, maxModulesPerDay, maxNewPerModulePerDay, ma
           reviewSessions.push({id:t.id, name:t.name, subject:t.subject, sub:t.sub, pass:p+1, total:targetPasses, idealPos:passPositions[p]});
         }
       }
-      topicPlan.push({...t, day0:activeDays[occIdx], passPositions});
+      topicPlan.push({...t, day0:dayForPos(occIdx), passPositions});
     });
-    // New lessons land exactly on their assigned active day — a hard limit.
+    // New lessons land exactly on their assigned active-day position — a hard limit.
     newSessions.forEach(ns=>{
-      const day=activeDays[ns.pos];
+      const day=dayForPos(ns.pos);
+      if(day==null) return;
       if(!schedule[day]) schedule[day]=[];
       schedule[day].push({...ns, day});
       if(day>maxDayUsed) maxDayUsed=day;
     });
     // Reviews fill this subject's own active-day slots as tightly as
     // possible, searching outward in position space from their ideal
-    // slot for the nearest one with room under the review cap, never
-    // earlier than that topic's previous pass.
+    // slot for the nearest one with room under that day's (priority-scaled)
+    // review cap, never earlier than that topic's previous pass.
     const reviewCounts={}, topicLastPos={};
     newSessions.forEach(ns=>{ topicLastPos[ns.id]=ns.pos; });
     reviewSessions.sort((a,b)=>a.idealPos-b.idealPos);
     reviewSessions.forEach(rs=>{
       const minPos=(topicLastPos[rs.id]!==undefined) ? topicLastPos[rs.id]+1 : rs.idealPos;
-      let pos=null, offset=0, guard=0;
-      while(pos===null && guard<3000){
+      let posFound=null, offset=0, guard=0;
+      while(posFound===null && guard<4000){
         const f=rs.idealPos+offset, b=rs.idealPos-offset;
-        if(f>=minPos && (reviewCounts[f]||0)<maxReviewPerModulePerDay){ pos=f; break; }
-        if(offset>0 && b>=minPos && (reviewCounts[b]||0)<maxReviewPerModulePerDay){ pos=b; break; }
+        if(f>=minPos && (reviewCounts[f]||0)<capRevAt(f)){ posFound=f; break; }
+        if(offset>0 && b>=minPos && (reviewCounts[b]||0)<capRevAt(b)){ posFound=b; break; }
         offset++; guard++;
       }
-      if(pos===null) pos=Math.max(rs.idealPos, minPos);
-      reviewCounts[pos]=(reviewCounts[pos]||0)+1;
-      topicLastPos[rs.id]=pos;
-      const day=activeDays[pos];
+      if(posFound===null) posFound=Math.max(rs.idealPos, minPos);
+      reviewCounts[posFound]=(reviewCounts[posFound]||0)+1;
+      topicLastPos[rs.id]=posFound;
+      const day=dayForPos(posFound);
+      if(day==null) return;
       const finalSession={id:rs.id, name:rs.name, subject:rs.subject, sub:rs.sub, pass:rs.pass, total:rs.total, day};
       if(!schedule[day]) schedule[day]=[];
       schedule[day].push(finalSession);
       if(day>maxDayUsed) maxDayUsed=day;
     });
   });
-  return {schedule, topicPlan, days:maxDayUsed+1, start, requestedDays:D};
+  return {schedule, topicPlan, days:maxDayUsed+1, start, requestedDays:D, dayPriority};
+}
+function estimateSessionMinutes(items, newMin, reviewMin) {
+  newMin=Number(newMin)||20; reviewMin=Number(reviewMin)||10;
+  return items.reduce((sum,it)=>sum+(it.pass===1?newMin:reviewMin), 0);
+}
+function dayPriorityPickerHtml(dayPriority) {
+  const dp=dayPriority||DEFAULT_DAY_PRIORITY;
+  return `<div class="daypri-picker" id="dayPriorityPicker">
+    ${WEEKDAY_SHORT.map((label,i)=>{
+      const level=dp[i]===undefined?1:dp[i];
+      return `<button type="button" class="daypri-opt" data-weekday="${i}" data-level="${level}">
+        <span class="dp-day">${label}</span><span class="dp-level">${DAY_PRIORITY_LABELS[level]}</span>
+      </button>`;
+    }).join("")}
+  </div>`;
+}
+function initDayPriorityPicker() {
+  const picker=document.getElementById("dayPriorityPicker");
+  if(!picker) return;
+  picker.querySelectorAll(".daypri-opt").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const cur=Number(btn.dataset.level);
+      const next=(cur+1)%3; // Off -> Normal -> Intense -> Off
+      btn.dataset.level=next;
+      btn.querySelector(".dp-level").textContent=DAY_PRIORITY_LABELS[next];
+    });
+  });
+}
+function readDayPriorityFromPicker() {
+  const picker=document.getElementById("dayPriorityPicker");
+  const dp={...DEFAULT_DAY_PRIORITY};
+  if(!picker) return dp;
+  picker.querySelectorAll(".daypri-opt").forEach(btn=>{
+    dp[Number(btn.dataset.weekday)]=Number(btn.dataset.level);
+  });
+  return dp;
 }
 function scheduleSetupHtml() {
   const T=allTopics().length, D=getDurationDays();
@@ -1247,6 +1321,8 @@ function scheduleSetupHtml() {
   const maxModulesPerDay=cfg.maxModulesPerDay||2;
   const maxNewPerModulePerDay=cfg.maxNewPerModulePerDay||2;
   const maxReviewPerModulePerDay=cfg.maxReviewPerModulePerDay||3;
+  const dayPriority=cfg.dayPriority||DEFAULT_DAY_PRIORITY;
+  const newMin=cfg.newMin||20, reviewMin=cfg.reviewMin||10;
   const presets=[3,5,7,10];
   return `<div class="card priority">
     <h2>Build your study schedule</h2>
@@ -1275,6 +1351,22 @@ function scheduleSetupHtml() {
       </div>
     </div>
     <p class="small" style="margin-top:8px">On any active day, each of that day's subjects gets at most this many new topics and this many review passes. Reviews are spaced flexibly, not on a rigid schedule.</p>
+    <div style="margin-top:20px">
+      <label>Day priority</label>
+      ${dayPriorityPickerHtml(dayPriority)}
+      <p class="small" style="margin-top:8px">Tap a day to cycle <b>Normal → Intense → Off</b>. <b>Off</b> days are skipped entirely; <b>Intense</b> days get extra capacity (roughly 1.75×). The plan length and time estimates update to match your choices.</p>
+    </div>
+    <div class="formgrid" style="margin-top:18px;max-width:400px">
+      <div>
+        <label>Minutes per new lesson</label>
+        <input id="newMinInput" type="number" min="1" max="180" value="${newMin}">
+      </div>
+      <div>
+        <label>Minutes per review pass</label>
+        <input id="reviewMinInput" type="number" min="1" max="180" value="${reviewMin}">
+      </div>
+    </div>
+    <p class="small" style="margin-top:8px">Used only to estimate study time per day — it doesn't change how sessions are packed.</p>
     <div class="actions" style="justify-content:flex-start;margin-top:16px">
       <button class="btn-primary" onclick="reviewScheduleSetup()">Generate schedule</button>
     </div>
@@ -1303,15 +1395,24 @@ function reviewScheduleSetup() {
   const maxNewPerModulePerDay=newRaw?Math.max(1,Math.round(Number(newRaw))):2;
   const revRaw=document.getElementById("maxReviewPerModuleInput").value;
   const maxReviewPerModulePerDay=revRaw?Math.max(1,Math.round(Number(revRaw))):3;
-  reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay);
+  const dayPriority=readDayPriorityFromPicker();
+  const newMinRaw=document.getElementById("newMinInput").value;
+  const newMin=newMinRaw?Math.max(1,Math.round(Number(newMinRaw))):20;
+  const reviewMinRaw=document.getElementById("reviewMinInput").value;
+  const reviewMin=reviewMinRaw?Math.max(1,Math.round(Number(reviewMinRaw))):10;
+  reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay, dayPriority, newMin, reviewMin);
 }
-function reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay) {
+function reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay, dayPriority, newMin, reviewMin) {
   target=Math.max(1, Math.min(12, target));
   maxModulesPerDay=Math.max(1, Math.min(DATA.length, Math.round(maxModulesPerDay||2)));
   maxNewPerModulePerDay=Math.max(1, Math.round(maxNewPerModulePerDay||2));
   maxReviewPerModulePerDay=Math.max(1, Math.round(maxReviewPerModulePerDay||3));
+  dayPriority=dayPriority||readDayPriorityFromPicker()||DEFAULT_DAY_PRIORITY;
+  newMin=Math.max(1, Math.round(newMin||20));
+  reviewMin=Math.max(1, Math.round(reviewMin||10));
   pendingTargetPasses=target; pendingMaxModulesPerDay=maxModulesPerDay;
   pendingMaxNewPerModulePerDay=maxNewPerModulePerDay; pendingMaxReviewPerModulePerDay=maxReviewPerModulePerDay;
+  pendingDayPriority=dayPriority; pendingNewMin=newMin; pendingReviewMin=reviewMin;
   // Reflect the (possibly suggested) values back into the setup fields in
   // case the person hits Back.
   const tpInput=document.getElementById("targetPassesInput");
@@ -1322,13 +1423,28 @@ function reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDa
   if(newInput) newInput.value=maxNewPerModulePerDay;
   const revInput=document.getElementById("maxReviewPerModuleInput");
   if(revInput) revInput.value=maxReviewPerModulePerDay;
+  const newMinInput=document.getElementById("newMinInput");
+  if(newMinInput) newMinInput.value=newMin;
+  const reviewMinInput=document.getElementById("reviewMinInput");
+  if(reviewMinInput) reviewMinInput.value=reviewMin;
   const picker=document.getElementById("passesPicker");
   if(picker) picker.querySelectorAll(".passes-opt").forEach(b=>b.classList.toggle("active", Number(b.dataset.passes)===target));
+  const dpPicker=document.getElementById("dayPriorityPicker");
+  if(dpPicker) dpPicker.querySelectorAll(".daypri-opt").forEach(b=>{
+    const wd=Number(b.dataset.weekday), lv=dayPriority[wd]===undefined?1:dayPriority[wd];
+    b.dataset.level=lv;
+    b.querySelector(".dp-level").textContent=DAY_PRIORITY_LABELS[lv];
+  });
 
   const T=allTopics().length, D=getDurationDays();
   const totalSessions=T*target;
-  const preview=buildSchedule(target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay);
+  const preview=buildSchedule(target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay, dayPriority);
   const overflow=Math.max(0, preview.days-D);
+  const offDayCount=Object.values(dayPriority).filter(v=>v===0).length;
+  const intenseDayCount=Object.values(dayPriority).filter(v=>v===2).length;
+  const totalMinutes=Object.values(preview.schedule).reduce((sum,items)=>sum+estimateSessionMinutes(items,newMin,reviewMin),0);
+  const activeDayCount=Object.keys(preview.schedule).length;
+  const avgMinutesPerActiveDay=activeDayCount?Math.round(totalMinutes/activeDayCount):0;
 
   let warningHtml="";
   if(overflow>0){
@@ -1336,26 +1452,28 @@ function reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDa
     // Try letting more subjects rotate per day (shortens each subject's gap between active days).
     if(maxModulesPerDay<DATA.length){
       const suggestedModules=Math.min(DATA.length, maxModulesPerDay+1);
-      const p=buildSchedule(target, suggestedModules, maxNewPerModulePerDay, maxReviewPerModulePerDay);
+      const p=buildSchedule(target, suggestedModules, maxNewPerModulePerDay, maxReviewPerModulePerDay, dayPriority);
       if(p.days<=D) fixes.push({label:`Rotate ${suggestedModules} subjects/day`, target, maxModulesPerDay:suggestedModules, maxNewPerModulePerDay, maxReviewPerModulePerDay});
     }
     // Try raising the new-lessons-per-subject cap.
     const suggestedNew=maxNewPerModulePerDay+1;
-    { const p=buildSchedule(target, maxModulesPerDay, suggestedNew, maxReviewPerModulePerDay);
+    { const p=buildSchedule(target, maxModulesPerDay, suggestedNew, maxReviewPerModulePerDay, dayPriority);
       if(p.days<=D) fixes.push({label:`Raise new/subject to ${suggestedNew}`, target, maxModulesPerDay, maxNewPerModulePerDay:suggestedNew, maxReviewPerModulePerDay}); }
     // Try raising the review-per-subject cap.
     const suggestedReview=maxReviewPerModulePerDay+1;
-    { const p=buildSchedule(target, maxModulesPerDay, maxNewPerModulePerDay, suggestedReview);
+    { const p=buildSchedule(target, maxModulesPerDay, maxNewPerModulePerDay, suggestedReview, dayPriority);
       if(p.days<=D) fixes.push({label:`Raise reviews/subject to ${suggestedReview}`, target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay:suggestedReview}); }
     // Try lowering the passes target.
     for(let tp=target-1; tp>=1; tp--){
-      const p=buildSchedule(tp, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay);
+      const p=buildSchedule(tp, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay, dayPriority);
       if(p.days<=D){ fixes.push({label:`Lower target to ${tp} passes`, target:tp, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay}); break; }
     }
-    const btnHtml=fixes.slice(0,3).map(f=>`<button type="button" onclick="reviewScheduleWithValues(${f.target}, ${f.maxModulesPerDay}, ${f.maxNewPerModulePerDay}, ${f.maxReviewPerModulePerDay})">${f.label}</button>`).join("");
+    // If some days are Off, suggest turning fewer of them off.
+    if(offDayCount>0) fixes.push({label:`Turn all days Normal`, target, maxModulesPerDay, maxNewPerModulePerDay, maxReviewPerModulePerDay, allNormal:true});
+    const btnHtml=fixes.slice(0,3).map(f=>`<button type="button" onclick="reviewScheduleWithValues(${f.target}, ${f.maxModulesPerDay}, ${f.maxNewPerModulePerDay}, ${f.maxReviewPerModulePerDay}, ${f.allNormal?"{...DEFAULT_DAY_PRIORITY}":"pendingDayPriority"}, pendingNewMin, pendingReviewMin)">${f.label}</button>`).join("");
     warningHtml=`<div style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--red-bg);border:1px solid var(--red-line)">
       <b style="color:var(--red);font-size:12.5px">Doesn't quite fit</b>
-      <p class="small" style="margin:6px 0 0;color:var(--ink)">At <b>${maxModulesPerDay} subject${maxModulesPerDay===1?"":"s"}/day</b>, <b>${maxNewPerModulePerDay} new</b> and <b>${maxReviewPerModulePerDay} review</b> per subject, ${T} topics × ${target} passes needs about <b>${preview.days} days</b> — <b>${overflow}</b> more than your ${D}-day duration.</p>
+      <p class="small" style="margin:6px 0 0;color:var(--ink)">At <b>${maxModulesPerDay} subject${maxModulesPerDay===1?"":"s"}/day</b>, <b>${maxNewPerModulePerDay} new</b> and <b>${maxReviewPerModulePerDay} review</b> per subject${offDayCount?`, with <b>${offDayCount} day${offDayCount===1?"":"s"}/week Off</b>`:""}, ${T} topics × ${target} passes needs about <b>${preview.days} days</b> — <b>${overflow}</b> more than your ${D}-day duration.</p>
       ${btnHtml?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">${btnHtml}</div>`:""}
     </div>`;
   }
@@ -1368,6 +1486,8 @@ function reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDa
       <li>Max <b>${maxNewPerModulePerDay}</b> new / <b>${maxReviewPerModulePerDay}</b> review per subject per active day</li>
       <li><b>${totalSessions}</b> total study sessions</li>
       <li>Packs into <b>${preview.days} days</b> at full capacity (your duration is set to ${D})</li>
+      <li>Day priority: <b>${7-offDayCount-intenseDayCount} Normal</b>${intenseDayCount?`, <b>${intenseDayCount} Intense</b>`:""}${offDayCount?`, <b>${offDayCount} Off</b>`:""} per week</li>
+      <li>≈ <b>${avgMinutesPerActiveDay} min</b> on an average active day (≈ <b>${Math.round(totalMinutes/60)} hrs</b> total, at ${newMin}/${reviewMin} min per new/review session)</li>
     </ul>
     ${warningHtml}
     <p class="small" style="margin-top:10px">Every active day is filled to your caps first — the plan finishes as soon as it's done rather than stretching across your full duration. You can regenerate this anytime with different numbers.</p>`;
@@ -1377,7 +1497,7 @@ function reviewScheduleWithValues(target, maxModulesPerDay, maxNewPerModulePerDa
 }
 function cancelScheduleConfirm() { document.getElementById("scheduleConfirmModal").classList.remove("show"); }
 function acceptScheduleConfirm() {
-  settings.schedule={targetPasses:pendingTargetPasses, maxModulesPerDay:pendingMaxModulesPerDay, maxNewPerModulePerDay:pendingMaxNewPerModulePerDay, maxReviewPerModulePerDay:pendingMaxReviewPerModulePerDay, generated:true};
+  settings.schedule={targetPasses:pendingTargetPasses, maxModulesPerDay:pendingMaxModulesPerDay, maxNewPerModulePerDay:pendingMaxNewPerModulePerDay, maxReviewPerModulePerDay:pendingMaxReviewPerModulePerDay, dayPriority:pendingDayPriority, newMin:pendingNewMin, reviewMin:pendingReviewMin, generated:true};
   save();
   scheduleAnimatedDays=new Set();
   document.getElementById("scheduleConfirmModal").classList.remove("show");
@@ -1435,19 +1555,25 @@ function renderSchedule() {
     </div>`;
     return;
   }
-  const cfg=settings.schedule||{targetPasses:5,maxModulesPerDay:2,maxNewPerModulePerDay:2,maxReviewPerModulePerDay:3,generated:false};
-  if(!cfg.generated){ view.innerHTML=scheduleSetupHtml(); initPassesPicker(); return; }
-  const plan=buildSchedule(cfg.targetPasses, cfg.maxModulesPerDay, cfg.maxNewPerModulePerDay, cfg.maxReviewPerModulePerDay);
+  const cfg=settings.schedule||{targetPasses:5,maxModulesPerDay:2,maxNewPerModulePerDay:2,maxReviewPerModulePerDay:3,dayPriority:DEFAULT_DAY_PRIORITY,newMin:20,reviewMin:10,generated:false};
+  if(!cfg.generated){ view.innerHTML=scheduleSetupHtml(); initPassesPicker(); initDayPriorityPicker(); return; }
+  const plan=buildSchedule(cfg.targetPasses, cfg.maxModulesPerDay, cfg.maxNewPerModulePerDay, cfg.maxReviewPerModulePerDay, cfg.dayPriority);
   if(!plan){ view.innerHTML=scheduleSetupHtml(); return; }
   const today=new Date(); today.setHours(0,0,0,0);
   const todayIdx=Math.round((today-plan.start)/86400000);
   const T=allTopics().length;
   const overflow=Math.max(0, plan.days-plan.requestedDays);
   const shortfall=Math.max(0, plan.requestedDays-plan.days);
+  const newMin=cfg.newMin||20, reviewMin=cfg.reviewMin||10;
+  const totalMinutesAll=Object.values(plan.schedule).reduce((sum,items)=>sum+estimateSessionMinutes(items,newMin,reviewMin),0);
+  const activeDayCountAll=Object.keys(plan.schedule).length;
+  const avgMinutesPerActiveDayAll=activeDayCountAll?Math.round(totalMinutesAll/activeDayCountAll):0;
+  const offDayCountAll=Object.values(cfg.dayPriority||DEFAULT_DAY_PRIORITY).filter(v=>v===0).length;
   let html=`<div class="card priority" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
     <div>
       <h2 style="margin-bottom:4px">${plan.days}-day plan</h2>
-      <p class="small" style="margin:0">${T} topics · target ${cfg.targetPasses} passes each · ${cfg.maxModulesPerDay||2} subject${(cfg.maxModulesPerDay||2)===1?"":"s"}/day · max ${cfg.maxNewPerModulePerDay||2} new / ${cfg.maxReviewPerModulePerDay||3} review per subject · ${T*cfg.targetPasses} sessions total</p>
+      <p class="small" style="margin:0">${T} topics · target ${cfg.targetPasses} passes each · ${cfg.maxModulesPerDay||2} subject${(cfg.maxModulesPerDay||2)===1?"":"s"}/day · max ${cfg.maxNewPerModulePerDay||2} new / ${cfg.maxReviewPerModulePerDay||3} review per subject · ${T*cfg.targetPasses} sessions total${offDayCountAll?` · ${offDayCountAll} day${offDayCountAll===1?"":"s"}/week off`:""}</p>
+      <p class="small" style="margin:2px 0 0">≈ <b>${avgMinutesPerActiveDayAll} min</b>/active day · ≈ <b>${Math.round(totalMinutesAll/60)} hrs</b> total study time</p>
     </div>
     <button onclick="reopenScheduleSetup()">Change target</button>
   </div>`;
@@ -1464,7 +1590,7 @@ function renderSchedule() {
     const wEnd=Math.min(plan.days, wStart+7);
     const weekStartDate=new Date(plan.start); weekStartDate.setDate(weekStartDate.getDate()+wStart);
     const weekEndDate=new Date(plan.start); weekEndDate.setDate(weekEndDate.getDate()+wEnd-1);
-    let dayRows="";
+    let dayRows="", weekMinutes=0;
     for(let d=wStart; d<wEnd; d++){
       const items=plan.schedule[d]||[];
       if(!items.length) continue;
@@ -1486,11 +1612,14 @@ function renderSchedule() {
       const rowStyle=isDayComplete ? `--ox:${origin.xPct}%;--oy:${origin.yPct}%` : "";
       const rowClasses=["day-row"];
       if(isDayComplete && alreadyAnimated) rowClasses.push("day-complete","day-filled","no-anim");
+      const dayMinutes=estimateSessionMinutes(items,newMin,reviewMin);
+      weekMinutes+=dayMinutes;
       dayRows+=`<div class="${rowClasses.join(" ")}" data-day="${d}" data-complete="${isDayComplete?1:0}" data-animated="${alreadyAnimated?1:0}" style="${rowStyle}">
         <div class="day-row-content">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap">
             <span class="mono small" style="${isToday?"color:var(--purple);font-weight:700":""}">${date.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>
             ${isToday?'<span class="badge">Today</span>':""}
+            <span class="small" style="opacity:.65">≈ ${dayMinutes} min</span>
             ${isDayComplete?`<span class="day-check${alreadyAnimated?"":" check-pop"}">${ICON_CHECK}</span>`:""}
           </div>
           ${groupsHtml}
@@ -1500,7 +1629,7 @@ function renderSchedule() {
     }
     if(!dayRows) continue;
     html+=`<div class="card priority">
-      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span></h2>
+      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})} · ≈ ${Math.round(weekMinutes/60*10)/10} hrs</span></h2>
       ${dayRows}
     </div>`;
   }

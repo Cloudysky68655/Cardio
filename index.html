@@ -481,14 +481,15 @@ tr:hover td{background:rgba(255,255,255,.02)}
 .daypri-opt[data-level="2"]{background:var(--grad-primary);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.35)}
 .daypri-opt:hover{border-color:var(--purple)}
 .manual-week-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:10px}
-.manual-day{border:1.5px dashed var(--panel-border);border-radius:12px;padding:10px;min-height:100px;transition:border-color .15s,background .15s}
-.manual-day.drag-over{border-color:var(--purple);border-style:solid;background:color-mix(in srgb, var(--purple) 8%, transparent)}
+.manual-day{border:1.5px solid var(--panel-border);border-radius:12px;padding:10px;min-height:100px;transition:border-color .15s,background .15s}
+.manual-day.drop-target{border-color:var(--purple);border-style:dashed;cursor:pointer}
+.manual-day.drop-target:hover,.manual-day.drop-target:active{background:color-mix(in srgb, var(--purple) 8%, transparent)}
 .manual-chip-list{display:flex;flex-direction:column;gap:6px;margin-bottom:6px;min-height:20px}
-.manual-chip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:grab;text-align:left;font-size:11.5px}
-.manual-chip:active{cursor:grabbing}
-.manual-chip.dragging{opacity:.35}
+.manual-chip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:pointer;text-align:left;font-size:11.5px}
+.manual-chip.selected{border-color:var(--purple);background:var(--grad-primary);color:#fff;box-shadow:0 4px 14px rgba(139,92,246,.35)}
 .manual-chip-remove{background:none;border:none;color:inherit;opacity:.55;cursor:pointer;font-size:14px;line-height:1;padding:0 2px;flex-shrink:0}
 .manual-chip-remove:hover{opacity:1;color:var(--red)}
+.manual-chip.selected .manual-chip-remove:hover{color:#fff;opacity:.8}
 .manual-add-btn{font-size:11px;padding:4px 8px}
 .manual-picker{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
 .manual-picker select{flex:1;min-width:120px;max-width:100%}
@@ -1538,16 +1539,34 @@ function manualTopicOptionsHtml(allT) {
     `<optgroup label="${subj}">${arr.map(t=>`<option value="${t.id}">${t.sub?t.sub+" – ":""}${t.name}</option>`).join("")}</optgroup>`
   ).join("");
 }
+let manualSelected = null; // {day, id} — the chip currently "picked up", tap-to-move style
 function manualScheduleHtml(start, D) {
   settings.schedule.manualPlan = settings.schedule.manualPlan || {};
   const plan = settings.schedule.manualPlan;
   const allT = allTopics();
   const topicById = {}; allT.forEach(t=>{ topicById[t.id]=t; });
   const optionsHtml = manualTopicOptionsHtml(allT);
-  let html = `<div class="card priority">
-    <h2>Manual schedule</h2>
-    <p class="small">Completely up to you — pick which topics land on which day, then drag a chip onto another day anytime to move it.</p>
+  const assignedCount = Object.values(plan).reduce((sum,arr)=>sum+(arr?arr.length:0), 0);
+  let selectedTopicName = "";
+  if(manualSelected){
+    const t=topicById[manualSelected.id];
+    if(t) selectedTopicName = t.sub?t.sub+" – "+t.name:t.name;
+    else manualSelected=null; // topic no longer exists — drop the stale selection
+  }
+  let html = `<div class="card priority" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+    <div>
+      <h2 style="margin-bottom:4px">Manual schedule</h2>
+      <p class="small" style="margin:0">Completely up to you — pick which topics land on which day. Tap a topic to pick it up, then tap another day to drop it there.</p>
+      <p class="small" style="margin:2px 0 0">${assignedCount} topic${assignedCount===1?"":"s"} placed so far</p>
+    </div>
+    <button class="btn-primary" onclick="manualConfirmPlan()"${assignedCount?"":" disabled"}>Confirm plan</button>
   </div>`;
+  if(manualSelected){
+    html += `<div class="card priority note-banner info" style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <p class="small" style="margin:0;color:var(--ink)">Moving <b>${selectedTopicName}</b> — tap the day you want it on.</p>
+      <button type="button" onclick="manualCancelSelect()">Cancel</button>
+    </div>`;
+  }
   for(let wStart=0; wStart<D; wStart+=7){
     const wEnd=Math.min(D, wStart+7);
     const weekStartDate=new Date(start); weekStartDate.setDate(weekStartDate.getDate()+wStart);
@@ -1559,18 +1578,20 @@ function manualScheduleHtml(start, D) {
       const chips = ids.map(id=>{
         const t=topicById[id];
         if(!t) return "";
-        return `<div class="sched-chip manual-chip" draggable="true" data-day="${d}" data-topic="${id}" ondragstart="manualDragStart(event)" ondragend="manualDragEnd(event)">
+        const isSelected = manualSelected && manualSelected.day===d && manualSelected.id===id;
+        return `<div class="sched-chip manual-chip${isSelected?" selected":""}" data-day="${d}" data-topic="${id}" onclick="event.stopPropagation();manualChipTap(${d},'${id}')">
           <span>${t.sub?t.sub+" – ":""}${t.name}</span>
-          <button type="button" class="manual-chip-remove" onclick="manualRemoveTopic(${d},'${id}')" title="Remove">×</button>
+          <button type="button" class="manual-chip-remove" onclick="event.stopPropagation();manualRemoveTopic(${d},'${id}')" title="Remove">×</button>
         </div>`;
       }).join("");
-      dayCards += `<div class="manual-day" data-day="${d}" ondragover="manualDragOver(event)" ondragleave="manualDragLeave(event)" ondrop="manualDrop(event)">
+      const isDropTarget = manualSelected && manualSelected.day!==d;
+      dayCards += `<div class="manual-day${isDropTarget?" drop-target":""}" data-day="${d}" onclick="manualDayTap(${d})">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">
           <span class="mono small">${date.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>
-          <button type="button" class="manual-add-btn" onclick="manualOpenPicker(${d})">+ Add</button>
+          <button type="button" class="manual-add-btn" onclick="event.stopPropagation();manualOpenPicker(${d})">+ Add</button>
         </div>
-        <div class="manual-chip-list" id="manualChips-${d}">${chips || '<span class="small" style="opacity:.5">Drop a topic here</span>'}</div>
-        <div class="manual-picker hidden" id="manualPicker-${d}">
+        <div class="manual-chip-list" id="manualChips-${d}">${chips || `<span class="small" style="opacity:.5">${isDropTarget?"Tap to drop here":"No topics yet"}</span>`}</div>
+        <div class="manual-picker hidden" id="manualPicker-${d}" onclick="event.stopPropagation()">
           <select id="manualPickerSelect-${d}">${optionsHtml}</select>
           <button type="button" class="btn-primary" onclick="manualAddTopic(${d})">Add</button>
           <button type="button" onclick="manualClosePicker(${d})">Cancel</button>
@@ -1585,6 +1606,7 @@ function manualScheduleHtml(start, D) {
   return html;
 }
 function manualOpenPicker(d) {
+  manualSelected = null; // adding fresh takes priority over any pending move
   document.querySelectorAll(".manual-picker").forEach(p=>p.classList.add("hidden"));
   const el=document.getElementById(`manualPicker-${d}`);
   if(el) el.classList.remove("hidden");
@@ -1606,43 +1628,81 @@ function manualRemoveTopic(d, id) {
   const arr = settings.schedule.manualPlan && settings.schedule.manualPlan[d];
   if(!arr) return;
   settings.schedule.manualPlan[d] = arr.filter(x=>x!==id);
+  if(manualSelected && manualSelected.day===d && manualSelected.id===id) manualSelected=null;
   save();
   renderSchedule();
 }
-let manualDragging = null;
-function manualDragStart(evt) {
-  const day=evt.currentTarget.dataset.day, id=evt.currentTarget.dataset.topic;
-  manualDragging = {day:Number(day), id};
-  evt.currentTarget.classList.add("dragging");
-  evt.dataTransfer.effectAllowed = "move";
-  try { evt.dataTransfer.setData("text/plain", id); } catch(e) {}
+// Tap-to-move: tap a chip to pick it up (or put it back down if tapped again),
+// then tap a different day's card to drop it there. This is the primary way
+// to move topics between days — it works identically on touch and desktop,
+// unlike native HTML5 drag-and-drop which many mobile browsers don't fire
+// reliably from a tap, which is what caused taps to appear to affect the
+// wrong day.
+function manualChipTap(day, id) {
+  if(manualSelected && manualSelected.day===day && manualSelected.id===id){
+    manualSelected=null;
+  } else {
+    manualSelected={day,id};
+  }
+  renderSchedule();
 }
-function manualDragEnd(evt) {
-  evt.currentTarget.classList.remove("dragging");
-  document.querySelectorAll(".manual-day.drag-over").forEach(el=>el.classList.remove("drag-over"));
+function manualCancelSelect() {
+  manualSelected=null;
+  renderSchedule();
 }
-function manualDragOver(evt) {
-  evt.preventDefault();
-  evt.currentTarget.classList.add("drag-over");
-}
-function manualDragLeave(evt) {
-  evt.currentTarget.classList.remove("drag-over");
-}
-function manualDrop(evt) {
-  evt.preventDefault();
-  evt.currentTarget.classList.remove("drag-over");
-  if(!manualDragging) return;
-  const targetDay=Number(evt.currentTarget.dataset.day);
-  const {day:sourceDay, id}=manualDragging;
-  manualDragging=null;
-  if(targetDay===sourceDay) return;
+function manualDayTap(day) {
+  if(!manualSelected) return; // tapping a day does nothing unless something's picked up
+  const {day:sourceDay, id}=manualSelected;
+  manualSelected=null;
+  if(day===sourceDay){ renderSchedule(); return; }
   settings.schedule.manualPlan = settings.schedule.manualPlan || {};
   const src = settings.schedule.manualPlan[sourceDay] || [];
   settings.schedule.manualPlan[sourceDay] = src.filter(x=>x!==id);
-  const tgt = settings.schedule.manualPlan[targetDay] = settings.schedule.manualPlan[targetDay] || [];
+  const tgt = settings.schedule.manualPlan[day] = settings.schedule.manualPlan[day] || [];
   if(!tgt.includes(id)) tgt.push(id);
   save();
   renderSchedule();
+}
+function manualConfirmPlan() {
+  settings.schedule.manualConfirmed = true;
+  save();
+  scheduleAnimatedDays = new Set();
+  renderSchedule();
+  showToast("Manual plan confirmed");
+}
+function manualEditPlan() {
+  settings.schedule.manualConfirmed = false;
+  manualSelected = null;
+  save();
+  renderSchedule();
+}
+function manualScheduleObj() {
+  const plan = settings.schedule.manualPlan || {};
+  const topicById = {}; allTopics().forEach(t=>{ topicById[t.id]=t; });
+  const out = {};
+  Object.entries(plan).forEach(([dayStr, ids])=>{
+    const d=Number(dayStr);
+    (ids||[]).forEach(id=>{
+      const t=topicById[id];
+      if(!t) return; // topic removed from DATA since this was assigned
+      if(!out[d]) out[d]=[];
+      out[d].push({id:t.id, name:t.name, subject:t.subject, sub:t.sub, pass:1, total:1, day:d});
+    });
+  });
+  return out;
+}
+function manualConfirmedHtml(start, D, todayIdx) {
+  const scheduleObj = manualScheduleObj();
+  const totalTopics = Object.values(scheduleObj).reduce((sum,items)=>sum+items.length, 0);
+  let html = `<div class="card priority" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+    <div>
+      <h2 style="margin-bottom:4px">Your manual plan</h2>
+      <p class="small" style="margin:0">${totalTopics} topic${totalTopics===1?"":"s"} placed across ${D} days · tap a topic below to mark it done</p>
+    </div>
+    <button onclick="manualEditPlan()">Edit plan</button>
+  </div>`;
+  html += buildWeeklyDayRowsHtml(scheduleObj, start, D, todayIdx);
+  return html;
 }
 function scheduleSessionChip(it, isPast) {
   const t=getTopic(it.id);
@@ -1677,6 +1737,67 @@ function scheduleMarkDone(evt, id, passNum) {
   const newChip=document.querySelector(`.sched-chip[data-topic="${id}"][data-pass="${passNum}"]`);
   if(newChip) jiggleBox(newChip);
 }
+function buildWeeklyDayRowsHtml(scheduleObj, startDate, totalDays, todayIdx) {
+  let out="";
+  for(let wStart=0; wStart<totalDays; wStart+=7){
+    const wEnd=Math.min(totalDays, wStart+7);
+    const weekStartDate=new Date(startDate); weekStartDate.setDate(weekStartDate.getDate()+wStart);
+    const weekEndDate=new Date(startDate); weekEndDate.setDate(weekEndDate.getDate()+wEnd-1);
+    let dayRows="";
+    for(let d=wStart; d<wEnd; d++){
+      const items=scheduleObj[d]||[];
+      if(!items.length) continue;
+      const date=new Date(startDate); date.setDate(date.getDate()+d);
+      const isToday=d===todayIdx, isPast=d<todayIdx;
+      const isDayComplete=items.every(it=>(getTopic(it.id).passes||0)>=it.pass);
+      const alreadyAnimated=scheduleAnimatedDays.has(d);
+      const isNewCompletion=isDayComplete && !alreadyAnimated;
+      const origin=(isNewCompletion && pendingFillOrigin && pendingFillOrigin.day===d) ? pendingFillOrigin : {xPct:50,yPct:50};
+      // Group this day's lessons by subject so each module's block is
+      // visually distinct rather than one mixed row.
+      const bySubject={};
+      items.forEach(it=>{ (bySubject[it.subject]=bySubject[it.subject]||[]).push(it); });
+      const groupsHtml=Object.entries(bySubject).map(([subj,arr])=>
+        `<div class="day-subject-group">
+          <div class="day-subject-label">${subj}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(it=>scheduleSessionChip(it,isPast)).join("")}</div>
+        </div>`).join("");
+      const rowStyle=isDayComplete ? `--ox:${origin.xPct}%;--oy:${origin.yPct}%` : "";
+      const rowClasses=["day-row"];
+      if(isDayComplete && alreadyAnimated) rowClasses.push("day-complete","day-filled","no-anim");
+      dayRows+=`<div class="${rowClasses.join(" ")}" data-day="${d}" data-complete="${isDayComplete?1:0}" data-animated="${alreadyAnimated?1:0}" style="${rowStyle}">
+        <div class="day-row-content">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap">
+            <span class="mono small" style="${isToday?"color:var(--purple);font-weight:700":""}">${date.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>
+            ${isToday?'<span class="badge">Today</span>':""}
+            ${isDayComplete?`<span class="day-check${alreadyAnimated?"":" check-pop"}">${ICON_CHECK}</span>`:""}
+          </div>
+          ${groupsHtml}
+        </div>
+      </div>`;
+      if(isDayComplete) scheduleAnimatedDays.add(d);
+    }
+    if(!dayRows) continue;
+    out+=`<div class="card priority">
+      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span></h2>
+      ${dayRows}
+    </div>`;
+  }
+  return out;
+}
+function activateScheduleAnimations(view) {
+  pendingFillOrigin=null;
+  // Newly-completed days: trigger the radial fill one frame after insertion
+  // so it actually animates from 0 instead of snapping to full size.
+  requestAnimationFrame(()=>{
+    view.querySelectorAll('.day-row[data-complete="1"][data-animated="0"]').forEach(row=>{
+      requestAnimationFrame(()=>{
+        row.classList.add("day-filled");
+        setTimeout(()=>{ row.classList.add("day-complete"); }, 3000);
+      });
+    });
+  });
+}
 function renderSchedule() {
   const view=document.getElementById("scheduleView");
   if(!view) return;
@@ -1696,7 +1817,14 @@ function renderSchedule() {
     <button class="${mode==="manual"?"btn-primary":""}" onclick="setScheduleMode('manual')">Manual · drag & drop</button>
   </div>`;
   if(mode==="manual"){
-    view.innerHTML = modeSwitcherHtml + manualScheduleHtml(start, D);
+    const today=new Date(); today.setHours(0,0,0,0);
+    const todayIdx=Math.round((today-start)/86400000);
+    if(settings.schedule.manualConfirmed){
+      view.innerHTML = modeSwitcherHtml + manualConfirmedHtml(start, D, todayIdx);
+      activateScheduleAnimations(view);
+    } else {
+      view.innerHTML = modeSwitcherHtml + manualScheduleHtml(start, D);
+    }
     return;
   }
   const cfg=settings.schedule||{targetPasses:5,maxModulesPerDay:2,maxNewPerModulePerDay:2,maxReviewPerModulePerDay:3,dayPriority:DEFAULT_DAY_PRIORITY,newMin:20,reviewMin:10,generated:false};
@@ -1730,64 +1858,9 @@ function renderSchedule() {
       <p class="small" style="margin:0;color:var(--ink)"><b style="color:var(--purple)">Finishes ${shortfall} days early</b> — packing every day to your caps only needs ${plan.days} days out of your ${plan.requestedDays}-day duration. You could shorten your Unit duration to match, or leave the extra days as buffer.</p>
     </div>`;
   }
-  for(let wStart=0; wStart<plan.days; wStart+=7){
-    const wEnd=Math.min(plan.days, wStart+7);
-    const weekStartDate=new Date(plan.start); weekStartDate.setDate(weekStartDate.getDate()+wStart);
-    const weekEndDate=new Date(plan.start); weekEndDate.setDate(weekEndDate.getDate()+wEnd-1);
-    let dayRows="", weekMinutes=0;
-    for(let d=wStart; d<wEnd; d++){
-      const items=plan.schedule[d]||[];
-      if(!items.length) continue;
-      const date=new Date(plan.start); date.setDate(date.getDate()+d);
-      const isToday=d===todayIdx, isPast=d<todayIdx;
-      const isDayComplete=items.every(it=>(getTopic(it.id).passes||0)>=it.pass);
-      const alreadyAnimated=scheduleAnimatedDays.has(d);
-      const isNewCompletion=isDayComplete && !alreadyAnimated;
-      const origin=(isNewCompletion && pendingFillOrigin && pendingFillOrigin.day===d) ? pendingFillOrigin : {xPct:50,yPct:50};
-      // Group this day's lessons by subject so each module's block is
-      // visually distinct rather than one mixed row.
-      const bySubject={};
-      items.forEach(it=>{ (bySubject[it.subject]=bySubject[it.subject]||[]).push(it); });
-      const groupsHtml=Object.entries(bySubject).map(([subj,arr])=>
-        `<div class="day-subject-group">
-          <div class="day-subject-label">${subj}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">${arr.map(it=>scheduleSessionChip(it,isPast)).join("")}</div>
-        </div>`).join("");
-      const rowStyle=isDayComplete ? `--ox:${origin.xPct}%;--oy:${origin.yPct}%` : "";
-      const rowClasses=["day-row"];
-      if(isDayComplete && alreadyAnimated) rowClasses.push("day-complete","day-filled","no-anim");
-      const dayMinutes=estimateSessionMinutes(items,newMin,reviewMin);
-      weekMinutes+=dayMinutes;
-      dayRows+=`<div class="${rowClasses.join(" ")}" data-day="${d}" data-complete="${isDayComplete?1:0}" data-animated="${alreadyAnimated?1:0}" style="${rowStyle}">
-        <div class="day-row-content">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;flex-wrap:wrap">
-            <span class="mono small" style="${isToday?"color:var(--purple);font-weight:700":""}">${date.toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}</span>
-            ${isToday?'<span class="badge">Today</span>':""}
-            ${isDayComplete?`<span class="day-check${alreadyAnimated?"":" check-pop"}">${ICON_CHECK}</span>`:""}
-          </div>
-          ${groupsHtml}
-        </div>
-      </div>`;
-      if(isDayComplete) scheduleAnimatedDays.add(d);
-    }
-    if(!dayRows) continue;
-    html+=`<div class="card priority">
-      <h2 style="font-size:15px">Week ${Math.floor(wStart/7)+1} <span class="small" style="font-weight:400">· ${weekStartDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}–${weekEndDate.toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span></h2>
-      ${dayRows}
-    </div>`;
-  }
+  html += buildWeeklyDayRowsHtml(plan.schedule, plan.start, plan.days, todayIdx);
   view.innerHTML=html;
-  pendingFillOrigin=null;
-  // Newly-completed days: trigger the radial fill one frame after insertion
-  // so it actually animates from 0 instead of snapping to full size.
-  requestAnimationFrame(()=>{
-    view.querySelectorAll('.day-row[data-complete="1"][data-animated="0"]').forEach(row=>{
-      requestAnimationFrame(()=>{
-        row.classList.add("day-filled");
-        setTimeout(()=>{ row.classList.add("day-complete"); }, 3000);
-      });
-    });
-  });
+  activateScheduleAnimations(view);
 }
 function daysSinceLast(id) {
   const h=getTopic(id).history||[]; if(!h.length)return 999;
